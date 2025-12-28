@@ -29,10 +29,8 @@ typedef struct List{
 void listCreate(List *list, size_t initCapacity);
 int  listGrow(List *list);
 void listDestroy(List *list);
-
 int  allocateNode(List *list);
 void releaseNode(List *list, int index);
-
 int  insert(List *list, int pos, int value);
 int  remove(List *list, int pos);
 int  search(List *list, int value);

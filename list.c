@@ -2,23 +2,47 @@
 #include <stdlib.h>
 #include "list.h"
 
-#define SOFT_ASSERT_LIST(cond, err_code, list, action) \
+static void listAbort(List *list, list_error err) {
+    if (list != NULL) {
+        list->error |= err;
+
+        free(list->nodes);
+        list->nodes = NULL;
+
+        list->capacity = 0;
+        list->size = 0;
+        list->head = 0;
+        list->freeHead = 0;
+    }
+
+    printf("LIST ABORT: error=%d\n", (int)err);
+    exit((int)err ? (int)err : 1);
+}
+
+#define ASSERT_LIST(cond, err_code, list) \
     do { \
         if (!(cond)) { \
-            (list)->error |= (err_code); \
-            action; \
+            listAbort((list), (err_code)); \
         } \
     } while (0)
 
 void listCreate(List *list, size_t initCapacity){
-    SOFT_ASSERT_LIST(list != NULL, LIST_NULL_PTR, list, return);
+    ASSERT_LIST(list != NULL, LIST_NULL_PTR, list);
 
-    if (initCapacity < 1){
-        SOFT_ASSERT_LIST(0, LIST_BAD_INDEX, list, initCapacity = 1);
+    list->error = LIST_OK;
+
+    list->nodes = NULL;
+    list->capacity = 0;
+    list->size = 0;
+    list->head = 0;
+    list->freeHead = 0;
+
+    if (initCapacity < 1) {
+        ASSERT_LIST(0, LIST_BAD_INDEX, list);
     }
 
     list->nodes = (Node *)calloc(initCapacity + 1, sizeof(Node));
-    SOFT_ASSERT_LIST(list->nodes != NULL, LIST_MEMORY_ERR, list, return);
+    ASSERT_LIST(list->nodes != NULL, LIST_MEMORY_ERR, list);
 
     list->capacity = initCapacity;
     list->size = 0;
@@ -37,13 +61,14 @@ void listCreate(List *list, size_t initCapacity){
 }
 
 int listGrow(List *list) {
-    SOFT_ASSERT_LIST(list != NULL, LIST_NULL_PTR, list, return 0);
+    ASSERT_LIST(list != NULL, LIST_NULL_PTR, list);
+    ASSERT_LIST(list->nodes != NULL, LIST_MEMORY_ERR, list);
 
     size_t oldCapacity = list->capacity;
     size_t newCapacity = (oldCapacity == 0) ? 1 : oldCapacity * 2;
 
     Node *newNodes = (Node *)realloc(list->nodes, (newCapacity + 1) * sizeof(Node));
-    SOFT_ASSERT_LIST(newNodes != NULL, LIST_MEMORY_ERR, list, return 0);
+    ASSERT_LIST(newNodes != NULL, LIST_MEMORY_ERR, list);
 
     list->nodes = newNodes;
 
@@ -63,7 +88,7 @@ int listGrow(List *list) {
 }
 
 void listDestroy(List *list){
-    SOFT_ASSERT_LIST(list != NULL, LIST_NULL_PTR, list, return);
+    ASSERT_LIST(list != NULL, LIST_NULL_PTR, list);
 
     free(list->nodes);
     list->nodes = NULL;
@@ -71,18 +96,20 @@ void listDestroy(List *list){
     list->size = 0;
     list->head = 0;
     list->freeHead = 0;
+    list->error = LIST_OK;
 }
 
 int allocateNode(List *list){
-    SOFT_ASSERT_LIST(list != NULL, LIST_NULL_PTR, list, return 0);
+    ASSERT_LIST(list != NULL, LIST_NULL_PTR, list);
+    ASSERT_LIST(list->nodes != NULL, LIST_MEMORY_ERR, list);
 
     if (list->freeHead == 0){
         int ok = listGrow(list);
-        SOFT_ASSERT_LIST(ok != 0, LIST_MEMORY_ERR, list, return 0);
+        ASSERT_LIST(ok != 0, LIST_MEMORY_ERR, list);
     }
 
     int idx = list->freeHead;
-    SOFT_ASSERT_LIST(idx > 0 && (size_t)idx <= list->capacity, LIST_CORRUPTED, list, return 0);
+    ASSERT_LIST(idx > 0 && (size_t)idx <= list->capacity, LIST_CORRUPTED, list);
 
     list->freeHead = list->nodes[idx].nextIndex;
     list->nodes[idx].nextIndex = 0;
@@ -91,20 +118,21 @@ int allocateNode(List *list){
 }
 
 void releaseNode(List *list, int index) {
-    SOFT_ASSERT_LIST(list != NULL, LIST_NULL_PTR, list, return);
-    SOFT_ASSERT_LIST(index > 0 && (size_t)index <= list->capacity, LIST_BAD_INDEX, list, return);
+    ASSERT_LIST(list != NULL, LIST_NULL_PTR, list);
+    ASSERT_LIST(list->nodes != NULL, LIST_MEMORY_ERR, list);
+    ASSERT_LIST(index > 0 && (size_t)index <= list->capacity, LIST_BAD_INDEX, list);
 
     list->nodes[index].nextIndex = list->freeHead;
     list->freeHead = index;
 }
 
 int insert(List *list, int pos, int value){
-    SOFT_ASSERT_LIST(list != NULL, LIST_NULL_PTR, list, return 0);
-
-    SOFT_ASSERT_LIST(pos >= 0 && pos <= list->size, LIST_BAD_INDEX, list, return 0);
+    ASSERT_LIST(list != NULL, LIST_NULL_PTR, list);
+    ASSERT_LIST(list->nodes != NULL, LIST_MEMORY_ERR, list);
+    ASSERT_LIST(pos >= 0 && pos <= list->size, LIST_BAD_INDEX, list);
 
     int newIndex = allocateNode(list);
-    SOFT_ASSERT_LIST(newIndex != 0, LIST_MEMORY_ERR, list, return 0);
+    ASSERT_LIST(newIndex != 0, LIST_MEMORY_ERR, list);
 
     list->nodes[newIndex].value = value;
 
@@ -113,11 +141,11 @@ int insert(List *list, int pos, int value){
         list->head = newIndex;
     } else{
         int prevIndex = list->head;
-        SOFT_ASSERT_LIST(prevIndex != 0, LIST_CORRUPTED, list, return 0);
+        ASSERT_LIST(prevIndex != 0, LIST_CORRUPTED, list);
 
         for (int idx = 0; idx < pos - 1; idx++){
             prevIndex = list->nodes[prevIndex].nextIndex;
-            SOFT_ASSERT_LIST(prevIndex != 0, LIST_CORRUPTED, list, return 0);
+            ASSERT_LIST(prevIndex != 0, LIST_CORRUPTED, list);
         }
 
         list->nodes[newIndex].nextIndex = list->nodes[prevIndex].nextIndex;
@@ -129,27 +157,27 @@ int insert(List *list, int pos, int value){
 }
 
 int remove(List *list, int pos){
-    SOFT_ASSERT_LIST(list != NULL, LIST_NULL_PTR, list, return 0);
+    ASSERT_LIST(list != NULL, LIST_NULL_PTR, list);
+    ASSERT_LIST(list->nodes != NULL, LIST_MEMORY_ERR, list);
+    ASSERT_LIST(pos >= 0 && pos < list->size, LIST_BAD_INDEX, list);
+    ASSERT_LIST(list->head != 0, LIST_BAD_INDEX, list);
 
-    SOFT_ASSERT_LIST(pos >= 0 && pos < list->size, LIST_BAD_INDEX, list, return 0);
-    SOFT_ASSERT_LIST(list->head != 0, LIST_BAD_INDEX, list, return 0);
-
-    int deletedIndex;
+    int deletedIndex = 0;
 
     if (pos == 0){
         deletedIndex = list->head;
         list->head = list->nodes[deletedIndex].nextIndex;
     } else{
         int prevIndex = list->head;
-        SOFT_ASSERT_LIST(prevIndex != 0, LIST_CORRUPTED, list, return 0);
+        ASSERT_LIST(prevIndex != 0, LIST_CORRUPTED, list);
 
         for (int idx = 0; idx < pos - 1; idx++){
             prevIndex = list->nodes[prevIndex].nextIndex;
-            SOFT_ASSERT_LIST(prevIndex != 0, LIST_CORRUPTED, list, return 0);
+            ASSERT_LIST(prevIndex != 0, LIST_CORRUPTED, list);
         }
 
         deletedIndex = list->nodes[prevIndex].nextIndex;
-        SOFT_ASSERT_LIST(deletedIndex != 0, LIST_CORRUPTED, list, return 0);
+        ASSERT_LIST(deletedIndex != 0, LIST_CORRUPTED, list);
 
         list->nodes[prevIndex].nextIndex = list->nodes[deletedIndex].nextIndex;
     }
@@ -164,7 +192,8 @@ int remove(List *list, int pos){
 }
 
 int search(List *list, int value){
-    SOFT_ASSERT_LIST(list != NULL, LIST_NULL_PTR, list, return 0);
+    ASSERT_LIST(list != NULL, LIST_NULL_PTR, list);
+    ASSERT_LIST(list->nodes != NULL, LIST_MEMORY_ERR, list);
 
     int cur = list->head;
 
@@ -175,15 +204,16 @@ int search(List *list, int value){
         cur = list->nodes[cur].nextIndex;
     }
 
-    SOFT_ASSERT_LIST(0, LIST_NOT_FOUND, list, return 0);
+    ASSERT_LIST(0, LIST_NOT_FOUND, list);
     return 0;
 }
 
 int getLogicalIndex(List *list, int physicalIndex){
-    SOFT_ASSERT_LIST(list != NULL, LIST_NULL_PTR, list, return -1);
+    ASSERT_LIST(list != NULL, LIST_NULL_PTR, list);
+    ASSERT_LIST(list->nodes != NULL, LIST_MEMORY_ERR, list);
 
-    SOFT_ASSERT_LIST(physicalIndex > 0 && (size_t)physicalIndex <= list->capacity,
-                     LIST_BAD_INDEX, list, return -1);
+    ASSERT_LIST(physicalIndex > 0 && (size_t)physicalIndex <= list->capacity,
+                LIST_BAD_INDEX, list);
 
     int cur = list->head;
     int logicalIndex = 0;
@@ -197,6 +227,6 @@ int getLogicalIndex(List *list, int physicalIndex){
         logicalIndex++;
     }
 
-    SOFT_ASSERT_LIST(0, LIST_NOT_FOUND, list, return -1);
+    ASSERT_LIST(0, LIST_NOT_FOUND, list);
     return -1;
 }
